@@ -16,6 +16,9 @@ src/
     dspic33ak_i2c_reg.h
     UPSTREAM.md
 
+tools/
+  sync_hal_from_upstream.py
+
 cmsis_driver/
   Driver_I2C_dsPIC33AK.c
   Driver_I2C_dsPIC33AK.h
@@ -29,6 +32,14 @@ The HAL vendor copy has been imported from:
 - https://github.com/sulaolab/dspic33ak-i2c-hal
 
 The CMSIS-Driver wrapper files will be added in a later step.
+
+## HAL Synchronization
+
+The HAL vendor copy under `src/hal_i2c/` can be synchronized from the upstream HAL-only repository using:
+
+```powershell
+python tools/sync_hal_from_upstream.py
+```
 
 ## Upstream HAL Policy
 
