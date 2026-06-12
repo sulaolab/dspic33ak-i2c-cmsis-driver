@@ -23,6 +23,7 @@ cmsis_driver/
   Driver_I2C_dsPIC33AK.c
   Driver_I2C_dsPIC33AK.h
   RTE_Device.h
+  README.md
 ```
 
 ## Current Status
@@ -31,7 +32,21 @@ The HAL vendor copy has been imported from:
 
 - https://github.com/sulaolab/dspic33ak-i2c-hal
 
-The CMSIS-Driver wrapper files will be added in a later step.
+The CMSIS-Driver wrapper files are provided under `cmsis_driver/`.
+
+This repository does not vendor the official CMSIS headers.
+
+## Include Path
+
+Applications or build systems should provide include paths for:
+
+```text
+src/hal_i2c
+cmsis_driver
+path/to/CMSIS/Driver/Include
+```
+
+`Driver_I2C.h` is expected to come from the official CMSIS-Driver package.
 
 ## HAL Synchronization
 
