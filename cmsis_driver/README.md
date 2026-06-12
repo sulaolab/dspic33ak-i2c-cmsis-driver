@@ -60,9 +60,9 @@ Unsupported functions return `ARM_DRIVER_ERROR_UNSUPPORTED`.
 
 ## Configuration through RTE_Device.h
 
-`RTE_Device.h` selects which CMSIS I2C driver objects are enabled and provides default timing parameters.
+`RTE_Device.h` is an example configuration file. It selects which CMSIS I2C driver objects are enabled and provides default timing parameters.
 
-Applications should edit these settings for the target I2C instance, clock, bus speed, and timeout policy.
+The bundled sample enables `RTE_I2C1` and `RTE_I2C2` (and leaves `RTE_I2C0` and `RTE_I2C3` disabled) only as an example. Applications should edit the `RTE_I2Cx` enable flags and timing values (clock, bus speed, and timeout policy) to match the target board's I2C instance and clock configuration.
 
 Example:
 
@@ -105,7 +105,7 @@ uint32_t Driver_I2C_dsPIC33AK_GetMs(void)
 
 The wrapper intentionally uses header names without hard-coded relative paths.
 
-This repository does not vendor the official CMSIS headers. The build system should provide include paths for:
+The dsPIC33AK I2C HAL vendor copy is provided in this repository under `src/hal_i2c/`. This repository does not vendor the official CMSIS headers. The build system should provide include paths for:
 
 ```text
 src/hal_i2c
