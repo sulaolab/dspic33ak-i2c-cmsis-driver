@@ -65,3 +65,7 @@ The HAL-only repository is the upstream source of truth:
 HAL fixes should be applied to the upstream HAL repository first, then synchronized into this repository.
 
 CMSIS-Driver wrapper changes should be made in this repository.
+
+## License
+
+This repository is licensed under the MIT No Attribution License (MIT-0).
