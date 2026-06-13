@@ -12,7 +12,7 @@ The current implementation is a blocking master-only driver intended to make the
 cmsis_driver/
   Driver_I2C_dsPIC33AK.c
   Driver_I2C_dsPIC33AK.h
-  RTE_Device.h
+  RTE_Device_I2C_dsPIC33AK_example.h
   README.md
 ```
 
@@ -61,9 +61,14 @@ The initial wrapper intentionally does not support:
 
 Unsupported functions return `ARM_DRIVER_ERROR_UNSUPPORTED`.
 
-## Configuration through RTE_Device.h
+## Configuration through RTE_Device_I2C_dsPIC33AK_example.h
 
-`RTE_Device.h` is an example configuration file. It selects which CMSIS I2C driver objects are enabled and provides default timing parameters.
+`RTE_Device_I2C_dsPIC33AK_example.h` is an example configuration file for this I2C
+CMSIS-Driver wrapper. It is not intended to be a shared application-level
+`RTE_Device.h`; in an integrated application, copy the required I2C definitions
+into that application's own `RTE_Device.h` or equivalent configuration header. It
+selects which CMSIS I2C driver objects are enabled and provides default timing
+parameters.
 
 The bundled sample enables `RTE_I2C1` and `RTE_I2C2` (and leaves `RTE_I2C0` and `RTE_I2C3` disabled) only as an example. Applications should edit the `RTE_I2Cx` enable flags and timing values (clock, bus speed, and timeout policy) to match the target board's I2C instance and clock configuration.
 

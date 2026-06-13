@@ -3,7 +3,7 @@
 #include <stdint.h>
 
 #include "Driver_I2C_dsPIC33AK.h"
-#include "RTE_Device.h"
+#include "RTE_Device_I2C_dsPIC33AK_example.h"
 #include "dspic33ak_i2c.h"
 
 #ifndef ARM_I2C_API_VERSION

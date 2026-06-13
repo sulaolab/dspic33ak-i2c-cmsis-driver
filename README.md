@@ -22,7 +22,7 @@ tools/
 cmsis_driver/
   Driver_I2C_dsPIC33AK.c
   Driver_I2C_dsPIC33AK.h
-  RTE_Device.h
+  RTE_Device_I2C_dsPIC33AK_example.h
   README.md
 
 third_party/
@@ -41,6 +41,10 @@ The HAL vendor copy has been imported from:
 - https://github.com/sulaolab/dspic33ak-i2c-hal
 
 The CMSIS-Driver wrapper files are provided under `cmsis_driver/`.
+
+`RTE_Device_I2C_dsPIC33AK_example.h` is an I2C-only example configuration file.
+Integrated applications should copy the required definitions into their own
+application-level `RTE_Device.h` or equivalent configuration header.
 
 A minimal copy of the ARM CMSIS-Driver API headers (`Driver_I2C.h`,
 `Driver_Common.h`) is vendored under `third_party/arm_cmsis_driver/Include/` so
