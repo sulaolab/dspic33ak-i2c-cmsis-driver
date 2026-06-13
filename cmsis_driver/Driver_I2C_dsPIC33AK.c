@@ -22,7 +22,7 @@
 #define ARM_I2C_ADDRESS_GC (1UL << 31)
 #endif
 
-#define DRIVER_I2C_DSPIC33AK_VERSION ARM_DRIVER_VERSION_MAJOR_MINOR(0, 1)
+#define DRIVER_I2C_DSPIC33AK_VERSION ARM_DRIVER_VERSION_MAJOR_MINOR(0, 2)
 #define I2C_ADDR7_MASK               0x7Fu
 
 typedef struct {
@@ -381,24 +381,47 @@ static int32_t I2C_Control(uint32_t index, uint32_t control, uint32_t arg)
 
     switch (control) {
     case ARM_I2C_BUS_SPEED:
-        if (ctx->powered != 0u) {
-            return ARM_DRIVER_ERROR_UNSUPPORTED;
-        }
+    {
+        uint32_t new_bus_hz;
+        int32_t ret;
 
         switch (arg) {
         case ARM_I2C_BUS_SPEED_STANDARD:
-            ctx->bus_hz = 100000u;
-            return ARM_DRIVER_OK;
+            new_bus_hz = 100000u;
+            break;
         case ARM_I2C_BUS_SPEED_FAST:
-            ctx->bus_hz = 400000u;
-            return ARM_DRIVER_OK;
+            new_bus_hz = 400000u;
+            break;
         case ARM_I2C_BUS_SPEED_FAST_PLUS:
-            ctx->bus_hz = 1000000u;
-            return ARM_DRIVER_OK;
+            new_bus_hz = 1000000u;
+            break;
         case ARM_I2C_BUS_SPEED_HIGH:
         default:
             return ARM_DRIVER_ERROR_UNSUPPORTED;
         }
+
+        if (ctx->status.busy != 0u || ctx->pending != 0u) {
+            return ARM_DRIVER_ERROR_BUSY;
+        }
+
+        /*
+         * When powered, apply the new BRG immediately via the HAL.  When not
+         * powered, only the cached value is updated; the BRG is programmed on
+         * the next PowerControl(ARM_POWER_FULL).
+         */
+        if (ctx->powered != 0u) {
+            ret = cmsis_return_from_hal(
+                dspic33ak_i2c_set_bus_speed(ctx->hal_inst,
+                                            ctx->fcy_hz,
+                                            new_bus_hz));
+            if (ret != ARM_DRIVER_OK) {
+                return ret;
+            }
+        }
+
+        ctx->bus_hz = new_bus_hz;
+        return ARM_DRIVER_OK;
+    }
 
     case ARM_I2C_OWN_ADDRESS:
     case ARM_I2C_BUS_CLEAR:
