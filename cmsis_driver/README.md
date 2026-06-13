@@ -108,15 +108,15 @@ uint32_t Driver_I2C_dsPIC33AK_GetMs(void)
 
 The wrapper intentionally uses header names without hard-coded relative paths.
 
-The dsPIC33AK I2C HAL vendor copy is provided in this repository under `src/hal_i2c/`. This repository does not vendor the official CMSIS headers. The build system should provide include paths for:
+The dsPIC33AK I2C HAL vendor copy is provided in this repository under `src/hal_i2c/`. A minimal copy of the ARM CMSIS-Driver API headers is vendored under `third_party/arm_cmsis_driver/Include/`. The build system should provide include paths for:
 
 ```text
 src/hal_i2c
 cmsis_driver
-path/to/CMSIS/Driver/Include
+third_party/arm_cmsis_driver/Include
 ```
 
-`Driver_I2C.h` is expected to come from the official CMSIS-Driver package.
+`Driver_I2C.h` is resolved from the vendored ARM CMSIS-Driver headers under `third_party/arm_cmsis_driver/Include/` (Apache-2.0, copied unmodified). A different CMSIS-Driver package may be substituted by adjusting this include path.
 
 ## Basic usage
 
