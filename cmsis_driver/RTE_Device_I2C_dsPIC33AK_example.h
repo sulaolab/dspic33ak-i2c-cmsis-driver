@@ -1,5 +1,16 @@
-#ifndef RTE_DEVICE_H
-#define RTE_DEVICE_H
+#ifndef RTE_DEVICE_I2C_DSPIC33AK_EXAMPLE_H
+#define RTE_DEVICE_I2C_DSPIC33AK_EXAMPLE_H
+
+/*
+ * Example RTE configuration for the dsPIC33AK I2C CMSIS-Driver wrapper.
+ *
+ * - This file is an example RTE configuration for the dsPIC33AK I2C CMSIS-Driver
+ *   wrapper.
+ * - It is not intended to be a shared application-level RTE_Device.h.
+ * - In an integrated application, copy the required I2C definitions into that
+ *   application's RTE_Device.h or equivalent configuration header.
+ * - Do not add USART/SPI/etc. settings to this I2C example file.
+ */
 
 #define RTE_I2C0 0
 #define RTE_I2C1 1
@@ -26,4 +37,4 @@
 #define RTE_I2C3_TIMEOUT_MS         10u
 #define RTE_I2C3_PENDING_TIMEOUT_MS 0u
 
-#endif /* RTE_DEVICE_H */
+#endif /* RTE_DEVICE_I2C_DSPIC33AK_EXAMPLE_H */
