@@ -53,6 +53,10 @@ path/to/CMSIS/Driver/Include
 The HAL vendor copy under `src/hal_i2c/` can be synchronized from the upstream HAL-only repository using:
 
 ```powershell
+# Windows (Python launcher)
+py -3 tools/sync_hal_from_upstream.py
+
+# or, if python is on PATH
 python tools/sync_hal_from_upstream.py
 ```
 
