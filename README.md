@@ -34,7 +34,10 @@ The HAL vendor copy has been imported from:
 
 The CMSIS-Driver wrapper files are provided under `cmsis_driver/`.
 
-This repository does not vendor the official CMSIS headers.
+A minimal copy of the ARM CMSIS-Driver API headers (`Driver_I2C.h`,
+`Driver_Common.h`) is vendored under `third_party/arm_cmsis_driver/Include/` so
+the wrapper builds without a separate CMSIS installation. See
+`third_party/arm_cmsis_driver/README.md` for the source and license.
 
 ## Include Path
 
@@ -43,10 +46,12 @@ Applications or build systems should provide include paths for:
 ```text
 src/hal_i2c
 cmsis_driver
-path/to/CMSIS/Driver/Include
+third_party/arm_cmsis_driver/Include
 ```
 
-`Driver_I2C.h` is expected to come from the official CMSIS-Driver package.
+`Driver_I2C.h` is resolved from the vendored ARM CMSIS-Driver headers under
+`third_party/arm_cmsis_driver/Include/` (Apache-2.0, copied unmodified). A
+different CMSIS-Driver package may be substituted by adjusting this include path.
 
 ## HAL Synchronization
 
