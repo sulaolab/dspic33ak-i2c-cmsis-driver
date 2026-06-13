@@ -35,10 +35,14 @@ In this repository, these files are located under the top-level `cmsis_driver/` 
 - `MasterTransmit(..., xfer_pending = false)`
 - `MasterReceive(..., xfer_pending = false)`
 - `MasterTransmit(..., xfer_pending = true)` followed by `MasterReceive(..., xfer_pending = false)`
-- Bus speed selection before `PowerControl(ARM_POWER_FULL)`:
+- Bus speed selection via `Control(ARM_I2C_BUS_SPEED, ...)`, callable before or
+  after `PowerControl(ARM_POWER_FULL)` (after power-on the bus must be idle):
   - Standard mode: 100 kHz
   - Fast mode: 400 kHz
   - Fast-mode Plus: 1 MHz
+  - High-speed mode (`ARM_I2C_BUS_SPEED_HIGH`): unsupported
+  - Returns `ARM_DRIVER_ERROR_BUSY` during an active transfer or a pending
+    no-STOP transaction
 
 ## Unsupported features and limitations
 
@@ -54,7 +58,6 @@ The initial wrapper intentionally does not support:
 - Bus clear
 - Abort transfer
 - Interrupt-driven asynchronous transfer
-- Changing bus speed while powered
 
 Unsupported functions return `ARM_DRIVER_ERROR_UNSUPPORTED`.
 
