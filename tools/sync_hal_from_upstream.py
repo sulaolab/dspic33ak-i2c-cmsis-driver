@@ -17,8 +17,13 @@ UPSTREAM_SOURCE_DIR = "src"
 DESTINATION_DIR = "src/hal_i2c"
 
 HAL_FILES = (
-    "dspic33ak_i2c.c",
     "dspic33ak_i2c.h",
+    "dspic33ak_i2c_common.c",
+    "dspic33ak_i2c_common.h",
+    "dspic33ak_i2c_master.c",
+    "dspic33ak_i2c_master.h",
+    "dspic33ak_i2c_slave.c",
+    "dspic33ak_i2c_slave.h",
     "dspic33ak_i2c_device.c",
     "dspic33ak_i2c_device.h",
     "dspic33ak_i2c_reg.h",

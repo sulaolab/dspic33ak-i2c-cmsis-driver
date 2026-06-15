@@ -4,7 +4,7 @@
 
 This directory provides a CMSIS-Driver I2C wrapper for the dsPIC33AK blocking I2C HAL.
 
-The current implementation is a blocking master-only driver intended to make the dsPIC33AK I2C HAL usable through the CMSIS-Driver I2C API.
+The implementation provides a blocking master and an interrupt-driven, callback-based 7-bit slave, exposing the dsPIC33AK I2C HAL through the CMSIS-Driver I2C API.
 
 ## File layout
 
@@ -43,21 +43,28 @@ In this repository, these files are located under the top-level `cmsis_driver/` 
   - High-speed mode (`ARM_I2C_BUS_SPEED_HIGH`): unsupported
   - Returns `ARM_DRIVER_ERROR_BUSY` during an active transfer or a pending
     no-STOP transaction
+- 7-bit slave (client) mode:
+  - `Control(ARM_I2C_OWN_ADDRESS, addr7)` to set the own address (call before
+    `PowerControl(ARM_POWER_FULL)`; the driver then brings the instance up as a
+    slave instead of a master)
+  - `SlaveReceive()` / `SlaveTransmit()` (one-shot buffers, re-armed per
+    transaction)
+  - `ARM_I2C_EVENT_SLAVE_RECEIVE` / `SLAVE_TRANSMIT` (addressed with no buffer
+    armed) and `ARM_I2C_EVENT_TRANSFER_DONE` via `SignalEvent`
+  - `GetDataCount()` reports bytes transferred in the last slave transaction
 
 ## Unsupported features and limitations
 
-The initial wrapper intentionally does not support:
+The wrapper intentionally does not support:
 
 - `MasterReceive(..., xfer_pending = true)`
-- Slave/client mode:
-  - `SlaveTransmit()`
-  - `SlaveReceive()`
+- More than one slave instance at a time (the slave HAL callbacks are
+  context-free, so the wrapper tracks a single active slave)
 - 10-bit addressing
 - General Call
 - High-speed mode
 - Bus clear
 - Abort transfer
-- Interrupt-driven asynchronous transfer
 
 Unsupported functions return `ARM_DRIVER_ERROR_UNSUPPORTED`.
 
@@ -147,6 +154,39 @@ START + address write + register address
 Repeated START + address read + data read + STOP
 ```
 
+## Slave (client) usage
+
+Set the own address before powering up, then arm a receive/transmit buffer.
+The slave is interrupt-driven, so the application must define the device I2C
+interrupt vectors and forward them to the slave HAL (the wrapper sits on top of
+that HAL), and set their priority.
+
+```c
+#include "Driver_I2C_dsPIC33AK.h"
+#include "dspic33ak_i2c_slave.h"   /* for the ISR delegate handlers */
+
+extern ARM_DRIVER_I2C Driver_I2C2;   /* -> DSPIC33AK_I2C_INST_3 */
+
+static volatile bool done;
+static void slave_evt(uint32_t e) { if (e & ARM_I2C_EVENT_TRANSFER_DONE) done = true; }
+
+/* App owns the vectors + priority; the HAL enables the interrupt sources. */
+void __attribute__((__interrupt__, __no_auto_psv__)) _I2C3Interrupt(void)
+{ dspic33ak_i2c_slave_event_irq(DSPIC33AK_I2C_INST_3); }
+void __attribute__((__interrupt__, __no_auto_psv__)) _I2C3RXInterrupt(void)
+{ dspic33ak_i2c_slave_rx_irq(DSPIC33AK_I2C_INST_3); }
+void __attribute__((__interrupt__, __no_auto_psv__)) _I2C3TXInterrupt(void)
+{ dspic33ak_i2c_slave_tx_irq(DSPIC33AK_I2C_INST_3); }
+
+uint8_t rx[8];
+
+_I2C3IP = 4; _I2C3RXIP = 4; _I2C3TXIP = 4;
+Driver_I2C2.Initialize(slave_evt);
+Driver_I2C2.Control(ARM_I2C_OWN_ADDRESS, 0x55);   /* before PowerControl */
+Driver_I2C2.PowerControl(ARM_POWER_FULL);
+Driver_I2C2.SlaveReceive(rx, sizeof rx);          /* re-arm after each TRANSFER_DONE */
+```
+
 ## Verified behavior
 
 The wrapper has been verified on the perseus_512_96K project using the WM8904 codec register read path.
@@ -173,3 +213,10 @@ Driver_I2Cx.Control(ARM_I2C_BUS_SPEED, ARM_I2C_BUS_SPEED_STANDARD);
 Verified at 100 kHz, 150 kHz, 200 kHz, 300 kHz and 400 kHz. The 100 kHz case in
 particular depends on the upstream HAL STOP-completion fix (STOP waits for
 `CON1.PEN` to clear, not just `STAT2.STOPE`).
+
+The slave path was verified on the dspic33ak-hal-starter board (EV74H48A +
+EV80L65A), where MikroBUS A (I2C2) and B (I2C3) share one bus through the
+on-board shorting resistors. A `Driver_I2C1` master and a `Driver_I2C2` slave
+(own address `0x55`) ran a per-heartbeat round trip: the master writes an
+8-byte pattern (slave `SlaveReceive`) and reads it back (slave `SlaveTransmit`),
+matching in both directions, sustained.
