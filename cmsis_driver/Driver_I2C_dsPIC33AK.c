@@ -4,7 +4,8 @@
 
 #include "Driver_I2C_dsPIC33AK.h"
 #include "RTE_Device_I2C_dsPIC33AK_example.h"
-#include "dspic33ak_i2c.h"
+#include "dspic33ak_i2c_master.h"
+#include "dspic33ak_i2c_slave.h"
 
 #ifndef ARM_I2C_API_VERSION
 #define ARM_I2C_API_VERSION ARM_DRIVER_VERSION_MAJOR_MINOR(2, 4)
@@ -22,7 +23,7 @@
 #define ARM_I2C_ADDRESS_GC (1UL << 31)
 #endif
 
-#define DRIVER_I2C_DSPIC33AK_VERSION ARM_DRIVER_VERSION_MAJOR_MINOR(0, 2)
+#define DRIVER_I2C_DSPIC33AK_VERSION ARM_DRIVER_VERSION_MAJOR_MINOR(0, 3)
 #define I2C_ADDR7_MASK               0x7Fu
 
 typedef struct {
@@ -38,6 +39,15 @@ typedef struct {
     uint8_t initialized;
     uint8_t powered;
     uint8_t pending;
+
+    /* Slave role (appended so the positional initializers below zero these). */
+    uint8_t        own_addr;   /* 7-bit own address; 0 => master-only instance */
+    uint8_t       *rx_buf;     /* armed by SlaveReceive  */
+    uint32_t       rx_num;
+    uint32_t       rx_idx;
+    const uint8_t *tx_buf;     /* armed by SlaveTransmit */
+    uint32_t       tx_num;
+    uint32_t       tx_idx;
 } i2c_cmsis_context_t;
 
 static ARM_DRIVER_VERSION I2C_GetVersion(void);
@@ -133,6 +143,71 @@ static i2c_cmsis_context_t g_i2c_ctx[4] = {
     },
 };
 
+/* The slave HAL callbacks carry no context, so a single slave instance is
+ * supported at a time (sufficient for the loopback validation and for typical
+ * single-slave applications). g_slave_ctx points at the powered slave. */
+static i2c_cmsis_context_t *g_slave_ctx = NULL;
+
+static void slave_cb_addr(bool is_read)
+{
+    i2c_cmsis_context_t *c = g_slave_ctx;
+    if (c == NULL) {
+        return;
+    }
+    c->status.busy = 1u;
+    c->status.mode = 0u;                       /* slave */
+    c->status.direction = is_read ? 0u : 1u;   /* 0=transmitter, 1=receiver */
+    c->data_count = 0u;
+
+    if (is_read) {
+        c->tx_idx = 0u;
+        if (c->tx_buf == NULL && c->cb_event != NULL) {
+            c->cb_event(ARM_I2C_EVENT_SLAVE_TRANSMIT);
+        }
+    } else {
+        c->rx_idx = 0u;
+        if (c->rx_buf == NULL && c->cb_event != NULL) {
+            c->cb_event(ARM_I2C_EVENT_SLAVE_RECEIVE);
+        }
+    }
+}
+
+static void slave_cb_rx(uint8_t b)
+{
+    i2c_cmsis_context_t *c = g_slave_ctx;
+    if (c != NULL && c->rx_buf != NULL && c->rx_idx < c->rx_num) {
+        c->rx_buf[c->rx_idx++] = b;
+        c->data_count = c->rx_idx;
+    }
+}
+
+static uint8_t slave_cb_tx(void)
+{
+    i2c_cmsis_context_t *c = g_slave_ctx;
+    uint8_t b = 0xFFu;
+    if (c != NULL && c->tx_buf != NULL && c->tx_idx < c->tx_num) {
+        b = c->tx_buf[c->tx_idx++];
+        c->data_count = c->tx_idx;
+    }
+    return b;
+}
+
+static void slave_cb_stop(void)
+{
+    i2c_cmsis_context_t *c = g_slave_ctx;
+    if (c == NULL) {
+        return;
+    }
+    c->status.busy = 0u;
+    /* The armed buffer is one-shot per CMSIS semantics; the app re-arms with
+     * SlaveReceive()/SlaveTransmit() for the next transaction. */
+    c->rx_buf = NULL;
+    c->tx_buf = NULL;
+    if (c->cb_event != NULL) {
+        c->cb_event(ARM_I2C_EVENT_TRANSFER_DONE);
+    }
+}
+
 #if defined(__GNUC__)
 __attribute__((weak))
 #endif
@@ -182,7 +257,14 @@ static int32_t I2C_Uninitialize(uint32_t index)
     dspic33ak_i2c_status_t hal_status = DSPIC33AK_I2C_OK;
 
     if (ctx->powered != 0u) {
-        hal_status = dspic33ak_i2c_deinit(ctx->hal_inst);
+        if (ctx->own_addr != 0u) {
+            hal_status = dspic33ak_i2c_slave_deinit(ctx->hal_inst);
+            if (g_slave_ctx == ctx) {
+                g_slave_ctx = NULL;
+            }
+        } else {
+            hal_status = dspic33ak_i2c_deinit(ctx->hal_inst);
+        }
     }
 
     ctx->cb_event = NULL;
@@ -208,7 +290,14 @@ static int32_t I2C_PowerControl(uint32_t index, ARM_POWER_STATE state)
     switch (state) {
     case ARM_POWER_OFF:
         if (ctx->powered != 0u) {
-            hal_status = dspic33ak_i2c_deinit(ctx->hal_inst);
+            if (ctx->own_addr != 0u) {
+                hal_status = dspic33ak_i2c_slave_deinit(ctx->hal_inst);
+                if (g_slave_ctx == ctx) {
+                    g_slave_ctx = NULL;
+                }
+            } else {
+                hal_status = dspic33ak_i2c_deinit(ctx->hal_inst);
+            }
         } else {
             hal_status = DSPIC33AK_I2C_OK;
         }
@@ -231,13 +320,33 @@ static int32_t I2C_PowerControl(uint32_t index, ARM_POWER_STATE state)
             return ARM_DRIVER_OK;
         }
 
-        config.fcy_hz = ctx->fcy_hz;
-        config.bus_hz = ctx->bus_hz;
-        config.timeout_ms = ctx->timeout_ms;
-        config.get_ms = Driver_I2C_dsPIC33AK_GetMs;
-        config.pending_timeout_ms = ctx->pending_timeout_ms;
+        if (ctx->own_addr != 0u) {
+            /* Slave role: an own address was set via Control(OWN_ADDRESS). */
+            dspic33ak_i2c_slave_config_t scfg;
+            scfg.addr7         = ctx->own_addr;
+            scfg.addr_mask     = 0u;
+            scfg.clock_stretch = false;
+            scfg.on_addr_match = slave_cb_addr;
+            scfg.on_rx_byte    = slave_cb_rx;
+            scfg.on_tx_byte    = slave_cb_tx;
+            scfg.on_stop       = slave_cb_stop;
 
-        hal_status = dspic33ak_i2c_init(ctx->hal_inst, &config);
+            g_slave_ctx = ctx;
+            ctx->rx_buf = NULL;
+            ctx->tx_buf = NULL;
+            hal_status = dspic33ak_i2c_slave_init(ctx->hal_inst, &scfg);
+            if (hal_status != DSPIC33AK_I2C_OK) {
+                g_slave_ctx = NULL;
+            }
+        } else {
+            config.fcy_hz = ctx->fcy_hz;
+            config.bus_hz = ctx->bus_hz;
+            config.timeout_ms = ctx->timeout_ms;
+            config.get_ms = Driver_I2C_dsPIC33AK_GetMs;
+            config.pending_timeout_ms = ctx->pending_timeout_ms;
+
+            hal_status = dspic33ak_i2c_init(ctx->hal_inst, &config);
+        }
         if (hal_status == DSPIC33AK_I2C_OK) {
             ctx->powered = 1u;
             ctx->pending = 0u;
@@ -346,20 +455,46 @@ static int32_t I2C_MasterReceive(
 
 static int32_t I2C_SlaveTransmit(uint32_t index, const uint8_t *data, uint32_t num)
 {
-    (void)index;
-    (void)data;
-    (void)num;
+    i2c_cmsis_context_t *ctx = &g_i2c_ctx[index];
 
-    return ARM_DRIVER_ERROR_UNSUPPORTED;
+    if (ctx->enabled == 0u) {
+        return ARM_DRIVER_ERROR_UNSUPPORTED;
+    }
+    if (ctx->initialized == 0u || ctx->powered == 0u || ctx->own_addr == 0u) {
+        return ARM_DRIVER_ERROR;
+    }
+    if (data == NULL || num == 0u) {
+        return ARM_DRIVER_ERROR_PARAMETER;
+    }
+
+    ctx->tx_buf = data;
+    ctx->tx_num = num;
+    ctx->tx_idx = 0u;
+    ctx->data_count = 0u;
+
+    return ARM_DRIVER_OK;
 }
 
 static int32_t I2C_SlaveReceive(uint32_t index, uint8_t *data, uint32_t num)
 {
-    (void)index;
-    (void)data;
-    (void)num;
+    i2c_cmsis_context_t *ctx = &g_i2c_ctx[index];
 
-    return ARM_DRIVER_ERROR_UNSUPPORTED;
+    if (ctx->enabled == 0u) {
+        return ARM_DRIVER_ERROR_UNSUPPORTED;
+    }
+    if (ctx->initialized == 0u || ctx->powered == 0u || ctx->own_addr == 0u) {
+        return ARM_DRIVER_ERROR;
+    }
+    if (data == NULL || num == 0u) {
+        return ARM_DRIVER_ERROR_PARAMETER;
+    }
+
+    ctx->rx_buf = data;
+    ctx->rx_num = num;
+    ctx->rx_idx = 0u;
+    ctx->data_count = 0u;
+
+    return ARM_DRIVER_OK;
 }
 
 static int32_t I2C_GetDataCount(uint32_t index)
@@ -424,6 +559,18 @@ static int32_t I2C_Control(uint32_t index, uint32_t control, uint32_t arg)
     }
 
     case ARM_I2C_OWN_ADDRESS:
+        /* Set the 7-bit own address (arg = 0 reverts to master-only). Must be
+         * set before PowerControl(FULL), which decides master vs slave init.
+         * 10-bit and general-call flags are not supported yet. */
+        if (ctx->powered != 0u) {
+            return ARM_DRIVER_ERROR_UNSUPPORTED;
+        }
+        if ((arg & (ARM_I2C_ADDRESS_10BIT | ARM_I2C_ADDRESS_GC)) != 0u) {
+            return ARM_DRIVER_ERROR_UNSUPPORTED;
+        }
+        ctx->own_addr = (uint8_t)(arg & I2C_ADDR7_MASK);
+        return ARM_DRIVER_OK;
+
     case ARM_I2C_BUS_CLEAR:
     case ARM_I2C_ABORT_TRANSFER:
     default:
