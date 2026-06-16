@@ -16,11 +16,11 @@
 #endif
 
 #ifndef ARM_I2C_ADDRESS_10BIT
-#define ARM_I2C_ADDRESS_10BIT (1UL << 30)
+#define ARM_I2C_ADDRESS_10BIT (0x0400UL)   /* CMSIS Driver_I2C.h value */
 #endif
 
 #ifndef ARM_I2C_ADDRESS_GC
-#define ARM_I2C_ADDRESS_GC (1UL << 31)
+#define ARM_I2C_ADDRESS_GC (0x8000UL)      /* CMSIS Driver_I2C.h value */
 #endif
 
 #define DRIVER_I2C_DSPIC33AK_VERSION ARM_DRIVER_VERSION_MAJOR_MINOR(0, 3)
@@ -48,6 +48,7 @@ typedef struct {
     const uint8_t *tx_buf;     /* armed by SlaveTransmit */
     uint32_t       tx_num;
     uint32_t       tx_idx;
+    uint8_t        rx_overflow; /* a byte arrived past the armed receive buffer */
 } i2c_cmsis_context_t;
 
 static ARM_DRIVER_VERSION I2C_GetVersion(void);
@@ -166,6 +167,7 @@ static void slave_cb_addr(bool is_read)
         }
     } else {
         c->rx_idx = 0u;
+        c->rx_overflow = 0u;
         if (c->rx_buf == NULL && c->cb_event != NULL) {
             c->cb_event(ARM_I2C_EVENT_SLAVE_RECEIVE);
         }
@@ -175,9 +177,16 @@ static void slave_cb_addr(bool is_read)
 static void slave_cb_rx(uint8_t b)
 {
     i2c_cmsis_context_t *c = g_slave_ctx;
-    if (c != NULL && c->rx_buf != NULL && c->rx_idx < c->rx_num) {
+    if (c == NULL) {
+        return;
+    }
+    if (c->rx_buf != NULL && c->rx_idx < c->rx_num) {
         c->rx_buf[c->rx_idx++] = b;
         c->data_count = c->rx_idx;
+    } else {
+        /* Byte received past the armed buffer (or with none armed): report it
+         * as an incomplete transfer at STOP rather than dropping it silently. */
+        c->rx_overflow = 1u;
     }
 }
 
@@ -195,16 +204,32 @@ static uint8_t slave_cb_tx(void)
 static void slave_cb_stop(void)
 {
     i2c_cmsis_context_t *c = g_slave_ctx;
+    uint32_t event;
+    bool incomplete;
+
     if (c == NULL) {
         return;
     }
     c->status.busy = 0u;
+
+    /* TRANSFER_DONE only when the armed buffer was exactly satisfied; otherwise
+     * the master ended early (or over-ran), which CMSIS reports as INCOMPLETE. */
+    if (c->status.direction == 1u) {            /* slave receiver (master wrote) */
+        incomplete = (c->rx_buf != NULL && c->rx_idx != c->rx_num) ||
+                     (c->rx_overflow != 0u);
+    } else {                                    /* slave transmitter (master read) */
+        incomplete = (c->tx_buf != NULL && c->tx_idx != c->tx_num);
+    }
+    event = incomplete ? ARM_I2C_EVENT_TRANSFER_INCOMPLETE
+                       : ARM_I2C_EVENT_TRANSFER_DONE;
+
     /* The armed buffer is one-shot per CMSIS semantics; the app re-arms with
      * SlaveReceive()/SlaveTransmit() for the next transaction. */
     c->rx_buf = NULL;
     c->tx_buf = NULL;
+    c->rx_overflow = 0u;
     if (c->cb_event != NULL) {
-        c->cb_event(ARM_I2C_EVENT_TRANSFER_DONE);
+        c->cb_event(event);
     }
 }
 
@@ -274,6 +299,18 @@ static int32_t I2C_Uninitialize(uint32_t index)
     ctx->data_count = 0u;
     clear_status(ctx);
 
+    /* Uninitialize returns the instance to its initial state, so the slave
+     * configuration must not survive into the next Initialize(). (PowerControl
+     * (ARM_POWER_OFF) keeps it, so a powered-down slave can be re-powered.) */
+    ctx->own_addr = 0u;
+    ctx->rx_buf = NULL;
+    ctx->tx_buf = NULL;
+    ctx->rx_num = 0u;
+    ctx->tx_num = 0u;
+    ctx->rx_idx = 0u;
+    ctx->tx_idx = 0u;
+    ctx->rx_overflow = 0u;
+
     return cmsis_return_from_hal(hal_status);
 }
 
@@ -321,8 +358,16 @@ static int32_t I2C_PowerControl(uint32_t index, ARM_POWER_STATE state)
         }
 
         if (ctx->own_addr != 0u) {
-            /* Slave role: an own address was set via Control(OWN_ADDRESS). */
+            /* Slave role: an own address was set via Control(OWN_ADDRESS).
+             * The slave HAL callbacks are context-free, so only one slave can
+             * be active at a time; reject a second one rather than silently
+             * hijacking the first. */
             dspic33ak_i2c_slave_config_t scfg;
+
+            if (g_slave_ctx != NULL && g_slave_ctx != ctx) {
+                return ARM_DRIVER_ERROR_BUSY;
+            }
+
             scfg.addr7         = ctx->own_addr;
             scfg.addr_mask     = 0u;
             scfg.clock_stretch = false;
@@ -559,17 +604,25 @@ static int32_t I2C_Control(uint32_t index, uint32_t control, uint32_t arg)
     }
 
     case ARM_I2C_OWN_ADDRESS:
+    {
         /* Set the 7-bit own address (arg = 0 reverts to master-only). Must be
          * set before PowerControl(FULL), which decides master vs slave init.
-         * 10-bit and general-call flags are not supported yet. */
+         * 10-bit and general-call flags are not supported yet, and no other
+         * bits beyond the 7-bit address field are allowed. */
+        uint32_t addr_flags = ARM_I2C_ADDRESS_10BIT | ARM_I2C_ADDRESS_GC;
+
         if (ctx->powered != 0u) {
             return ARM_DRIVER_ERROR_UNSUPPORTED;
         }
-        if ((arg & (ARM_I2C_ADDRESS_10BIT | ARM_I2C_ADDRESS_GC)) != 0u) {
+        if ((arg & addr_flags) != 0u) {
             return ARM_DRIVER_ERROR_UNSUPPORTED;
+        }
+        if ((arg & ~(addr_flags | (uint32_t)I2C_ADDR7_MASK)) != 0u) {
+            return ARM_DRIVER_ERROR_PARAMETER;
         }
         ctx->own_addr = (uint8_t)(arg & I2C_ADDR7_MASK);
         return ARM_DRIVER_OK;
+    }
 
     case ARM_I2C_BUS_CLEAR:
     case ARM_I2C_ABORT_TRANSFER:

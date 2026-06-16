@@ -50,7 +50,10 @@ In this repository, these files are located under the top-level `cmsis_driver/` 
   - `SlaveReceive()` / `SlaveTransmit()` (one-shot buffers, re-armed per
     transaction)
   - `ARM_I2C_EVENT_SLAVE_RECEIVE` / `SLAVE_TRANSMIT` (addressed with no buffer
-    armed) and `ARM_I2C_EVENT_TRANSFER_DONE` via `SignalEvent`
+    armed) via `SignalEvent`
+  - at STOP, `ARM_I2C_EVENT_TRANSFER_DONE` when the armed buffer was exactly
+    satisfied, otherwise `ARM_I2C_EVENT_TRANSFER_INCOMPLETE` (master ended
+    early, or wrote past the receive buffer)
   - `GetDataCount()` reports bytes transferred in the last slave transaction
 
 ## Unsupported features and limitations

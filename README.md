@@ -9,10 +9,11 @@ This repository is intended to provide a CMSIS-Driver I2C wrapper together with 
 ```text
 src/
   hal_i2c/
-    dspic33ak_i2c.c
-    dspic33ak_i2c.h
-    dspic33ak_i2c_device.c
-    dspic33ak_i2c_device.h
+    dspic33ak_i2c.h          (shared types + lifecycle)
+    dspic33ak_i2c_master.h   dspic33ak_i2c_master.c
+    dspic33ak_i2c_slave.h    dspic33ak_i2c_slave.c
+    dspic33ak_i2c_common.h   dspic33ak_i2c_common.c
+    dspic33ak_i2c_device.h   dspic33ak_i2c_device.c
     dspic33ak_i2c_reg.h
     UPSTREAM.md
 
